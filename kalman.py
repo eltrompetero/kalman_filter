@@ -90,7 +90,7 @@ class Kalman(object):
             T=self.z.shape[1]
             correctedmux=np.zeros((len(self.x0),T+delay))  # result of prediction once accounting for obs
             correctedmux[:,:delay]=np.tile(self.x0[:,None],(1,delay))
-            predictedmux=np.zeros((len(self.x0),T+delay))  # result of prediction once accounting for obs
+            predictedmux=np.zeros((len(self.x0),T+delay+1))  # result of prediction once accounting for obs
             predictedmux[:,:delay]=np.tile(self.x0[:,None],(1,delay))
             SigmaX=np.zeros((T+1,len(self.x0),len(self.x0)))
             
@@ -106,7 +106,7 @@ class Kalman(object):
                 correctedmux[:,i]=mux[:]
                 
                 # Calculate prior on next state.
-                predictedmux[:,i+delay]=self.A.dot(mux)+self.b[:,i]
+                predictedmux[:,i+delay+1]=self.A.dot(mux)+self.b[:,i]
                 iSigmax=(inv(self.A.T).dot(inv( inv(self.A.T.dot(self.L).dot(self.A))+inv(R) )).dot(inv(self.A)))
                 SigmaX[i+1]=inv(iSigmax)
         return predictedmux,correctedmux,SigmaX
