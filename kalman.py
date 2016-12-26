@@ -55,7 +55,7 @@ class Kalman(object):
         Standard Kalman filter. If delay>0, predict into the future. Store list of expected mu0 in correctedmux.
         Update estimate of state in the past using the correction step in the KF and use that to predict delay
         into the future.
-        2016-12-23
+        2016-12-25
 
         Params:
         -------
@@ -64,52 +64,58 @@ class Kalman(object):
         Values:
         -------
         predictedmux
-        correctedmux 2016-12-23
+        CovPred
+        correctedmux
+        CovCorrected
         """
         if delay==0:
             T=self.z.shape[1]
             correctedmux=np.zeros((len(self.x0),T))  # result of prediction once accounting for obs
             predictedmux=np.zeros((self.ndim,T+1))
-            SigmaX=np.zeros((T+1,self.ndim,self.ndim))
-
+            CovPred=np.zeros((T+1,self.ndim,self.ndim))  # cov of error on predictions
+            CovCorrected=np.zeros((T,self.ndim,self.ndim))  # cov of error on corrections
+            
             # Calculate KF corrected estimate of state with data.
-            SigmaX[0]=self.covx0
+            CovPred[0]=self.covx0
             predictedmux[:,0]=self.x0
-            iSigmax=inv(SigmaX[0])
+            iCovx=inv(CovPred[0])
             
             for i in xrange(T):
-                R=self.M.T.dot(self.Q.dot(self.M.T))+iSigmax  # cov of state estimate
-                correctedmux[:,i]=(inv(R).dot(iSigmax).dot(predictedmux[:,i]) + 
+                # Calculate corrections on predicted future state given observation.
+                R=self.M.T.dot(self.Q.dot(self.M.T))+iCovx  # inv cov of corrected state estimate
+                correctedmux[:,i]=(inv(R).dot(iCovx).dot(predictedmux[:,i]) + 
                      inv(R).dot(self.M.T).dot(self.Q).dot(self.z[:,i]))  # corrected state estimate
                 
                 # Calculate prior on next state.
                 predictedmux[:,i+1]=self.A.dot(correctedmux[:,i]) + self.b[:,i]
-                iSigmax=(inv(self.A.T).dot(inv( inv(self.A.T.dot(self.L).dot(self.A))+inv(R) )).dot(inv(self.A)))
-                SigmaX[i+1]=inv(iSigmax)
+                iCovx=(inv(self.A.T).dot(inv( inv(self.A.T.dot(self.L).dot(self.A))+inv(R) )).dot(inv(self.A)))
+
+                CovCorrected[i]=inv(R)
+                CovPred[i+1]=inv(iCovx)
         else:
             T=self.z.shape[1]
             correctedmux=np.zeros((len(self.x0),T+delay))  # result of prediction once accounting for obs
             correctedmux[:,:delay]=np.tile(self.x0[:,None],(1,delay))
             predictedmux=np.zeros((len(self.x0),T+delay+1))  # result of prediction once accounting for obs
             predictedmux[:,:delay]=np.tile(self.x0[:,None],(1,delay))
-            SigmaX=np.zeros((T+1,len(self.x0),len(self.x0)))
+            CovPred=np.zeros((T+1,len(self.x0),len(self.x0)))
             
             # Calculate KF corrected estimate of state with data.
-            SigmaX[0]=self.covx0
-            iSigmax=inv(SigmaX[0])
+            CovPred[0]=self.covx0
+            iCovx=inv(CovPred[0])
             mux=self.x0
             
             for i in xrange(T):
-                R=self.M.T.dot(self.Q.dot(self.M.T))+iSigmax  # cov of state estimate
-                mux=(inv(R).dot(iSigmax).dot(predictedmux[:,i]) + 
+                R=self.M.T.dot(self.Q.dot(self.M.T))+iCovx  # cov of state estimate
+                mux=(inv(R).dot(iCovx).dot(predictedmux[:,i]) + 
                      inv(R).dot(self.M.T).dot(self.Q).dot(self.z[:,i]))  # corrected state estimate
                 correctedmux[:,i]=mux[:]
                 
                 # Calculate prior on next state.
                 predictedmux[:,i+delay+1]=self.A.dot(mux)+self.b[:,i]
-                iSigmax=(inv(self.A.T).dot(inv( inv(self.A.T.dot(self.L).dot(self.A))+inv(R) )).dot(inv(self.A)))
-                SigmaX[i+1]=inv(iSigmax)
-        return predictedmux,correctedmux,SigmaX
+                iCovx=(inv(self.A.T).dot(inv( inv(self.A.T.dot(self.L).dot(self.A))+inv(R) )).dot(inv(self.A)))
+                CovPred[i+1]=inv(iCovx)
+        return predictedmux,CovPred,correctedmux,CovCorrected
 
     def unscented_filter(self,delay=0):
         """
@@ -128,7 +134,7 @@ class Kalman(object):
         if delay==0:
             T=self.z.shape[1]
             correctedmux=np.zeros((self.ndim,T))  # result of prediction once accounting for obs
-            predictedmux=np.zeros((self.ndim,T))
+            predictedmux=np.zeros((self.ndim,T+1))
             SigmaX=np.zeros((T+1,self.ndim,self.ndim))
             
             # Calculate KF corrected estimate of state with data.
@@ -137,21 +143,31 @@ class Kalman(object):
             
             for i in xrange(T):
                 iSigmax=inv(SigmaX[i])
-                R=self.M.T.dot(self.Q.dot(self.M.T))+iSigmax  # cov of state estimate
+                R=self.M.T.dot(self.Q.dot(self.M.T))+iSigmax  # inverse cov of state estimate
                 mux=(inv(R).dot(iSigmax).dot(predictedmux[:,i]) + 
                      inv(R).dot(self.M.T).dot(self.Q).dot(self.z[:,i]))  # corrected state estimate
                 correctedmux[:,i]=mux[:]
                 
                 # Calculate prior on next state.
                 spline=self.der(correctedmux[:,i-3:i+1])*self.dt
-                predictedmux[:,i]=self.A.dot(mux) + self.b[:,i] + spline
-                iSigmax=(inv(self.A.T).dot(inv( inv(self.A.T.dot(self.L).dot(self.A))+inv(R) )).dot(inv(self.A)))
-                SigmaX[i+1]=inv(iSigmax)
+                A=self.A
+                predictedmux[:,i+1]=A.dot(mux) + self.b[:,i] + spline
+                # Now must account for extra uncertainty hidden in spline estimate.
+                if type(spline)==float:
+                    L=self.L
+                else:
+                    L=inv( inv(self.L)+(inv(R)+SigmaX[i-3])/4 )
+                iSigmax=(inv(A.T).dot(inv( inv(A.T.dot(L).dot(A))+inv(R) )).dot(inv(A)))
+                try:
+                    SigmaX[i+1]=inv(iSigmax)
+                except np.linalg.LinAlgError:
+                    print A
+                    print iSigmax
         else:
             T=self.z.shape[1]
             correctedmux=np.zeros((len(self.x0),T+delay))  # result of prediction once accounting for obs
             correctedmux[:,:delay]=np.tile(self.x0[:,None],(1,delay))
-            predictedmux=np.zeros((len(self.x0),T+delay))  # result of prediction once accounting for obs
+            predictedmux=np.zeros((len(self.x0),T+delay+1))  # result of prediction once accounting for obs
             predictedmux[:,:delay]=np.tile(self.x0[:,None],(1,delay))
             SigmaX=np.zeros((T+1,self.ndim,self.ndim))
             
@@ -167,7 +183,7 @@ class Kalman(object):
                 correctedmux[:,i]=mux[:]
                 
                 # Calculate prior on next state.
-                predictedmux[:,i+delay]=self.A.dot(mux)+self.b[:,i]
+                predictedmux[:,i+delay+1]=self.A.dot(mux)+self.b[:,i]
                 iSigmax=(inv(self.A.T).dot(inv( inv(self.A.T.dot(self.L).dot(self.A))+inv(R) )).dot(inv(self.A)))
                 SigmaX[i+1]=inv(iSigmax)
         return predictedmux,correctedmux,SigmaX
