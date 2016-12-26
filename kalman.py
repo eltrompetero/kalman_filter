@@ -69,7 +69,7 @@ class Kalman(object):
         if delay==0:
             T=self.z.shape[1]
             correctedmux=np.zeros((len(self.x0),T))  # result of prediction once accounting for obs
-            predictedmux=np.zeros((self.ndim,T))
+            predictedmux=np.zeros((self.ndim,T+1))
             SigmaX=np.zeros((T+1,self.ndim,self.ndim))
 
             # Calculate KF corrected estimate of state with data.
@@ -79,12 +79,11 @@ class Kalman(object):
             
             for i in xrange(T):
                 R=self.M.T.dot(self.Q.dot(self.M.T))+iSigmax  # cov of state estimate
-                mux=(inv(R).dot(iSigmax).dot(predictedmux[:,i]) + 
+                correctedmux[:,i]=(inv(R).dot(iSigmax).dot(predictedmux[:,i]) + 
                      inv(R).dot(self.M.T).dot(self.Q).dot(self.z[:,i]))  # corrected state estimate
-                correctedmux[:,i]=mux[:]
                 
                 # Calculate prior on next state.
-                predictedmux[:,i]=self.A.dot(mux) + self.b[:,i]
+                predictedmux[:,i+1]=self.A.dot(correctedmux[:,i]) + self.b[:,i]
                 iSigmax=(inv(self.A.T).dot(inv( inv(self.A.T.dot(self.L).dot(self.A))+inv(R) )).dot(inv(self.A)))
                 SigmaX[i+1]=inv(iSigmax)
         else:
