@@ -1,4 +1,6 @@
-# An implementation of the Kalman filter.
+# An implementation of the Kalman filter. 
+# Written by Edward Lee edl56@cornell.edu
+
 import numpy as np
 from numpy.linalg import inv
 
@@ -63,13 +65,14 @@ class Kalman(object):
             
         Values:
         -------
-        predictedmux
+        predictedx
         CovPred
-        correctedmux
+        correctedx
         CovCorrected
         """
+        T=self.z.shape[1]
+
         if delay==0:
-            T=self.z.shape[1]
             correctedmux=np.zeros((len(self.x0),T))  # result of prediction once accounting for obs
             predictedmux=np.zeros((self.ndim,T+1))
             CovPred=np.zeros((T+1,self.ndim,self.ndim))  # cov of error on predictions
@@ -78,46 +81,45 @@ class Kalman(object):
             # Calculate KF corrected estimate of state with data.
             CovPred[0]=self.covx0
             predictedmux[:,0]=self.x0
-            iCovx=inv(CovPred[0])
+            iCovPred=inv(CovPred[0])
             
             for i in xrange(T):
                 # Calculate corrections on predicted future state given observation.
-                R=self.M.T.dot(self.Q.dot(self.M.T))+iCovx  # inv cov of corrected state estimate
-                correctedmux[:,i]=(inv(R).dot(iCovx).dot(predictedmux[:,i]) + 
+                R=self.M.T.dot(self.Q.dot(self.M.T))+iCovPred  # inv cov of corrected state estimate
+                correctedmux[:,i]=(inv(R).dot(iCovPred).dot(predictedmux[:,i]) + 
                      inv(R).dot(self.M.T).dot(self.Q).dot(self.z[:,i]))  # corrected state estimate
                 
                 # Calculate prior on next state.
                 predictedmux[:,i+1]=self.A.dot(correctedmux[:,i]) + self.b[:,i]
-                iCovx=(inv(self.A.T).dot(inv( inv(self.A.T.dot(self.L).dot(self.A))+inv(R) )).dot(inv(self.A)))
+                iCovPred=(inv(self.A.T).dot(inv( inv(self.A.T.dot(self.L).dot(self.A))+inv(R) )).dot(inv(self.A)))
 
                 CovCorrected[i]=inv(R)
-                CovPred[i+1]=inv(iCovx)
+                CovPred[i+1]=inv(iCovPred)
         else:
-            T=self.z.shape[1]
-            correctedmux=np.zeros((len(self.x0),T+delay))  # result of prediction once accounting for obs
+            correctedmux=np.zeros((self.ndim,T+delay))  # result of prediction once accounting for obs
             correctedmux[:,:delay]=np.tile(self.x0[:,None],(1,delay))
-            predictedmux=np.zeros((len(self.x0),T+delay+1))  # result of prediction once accounting for obs
+            predictedmux=np.zeros((self.ndim,T+delay+1))  # result of prediction once accounting for obs
             predictedmux[:,:delay]=np.tile(self.x0[:,None],(1,delay))
-            CovPred=np.zeros((T+1,len(self.x0),len(self.x0)))
+            CovPred=np.zeros((T+1,self.ndim,self.ndim))
+            CovCorrected=np.zeros((T,self.ndim,self.ndim))
             
             # Calculate KF corrected estimate of state with data.
             CovPred[0]=self.covx0
-            iCovx=inv(CovPred[0])
+            iCovPred=inv(CovPred[0])
             mux=self.x0
             
             for i in xrange(T):
-                R=self.M.T.dot(self.Q.dot(self.M.T))+iCovx  # cov of state estimate
-                mux=(inv(R).dot(iCovx).dot(predictedmux[:,i]) + 
+                R=self.M.T.dot(self.Q.dot(self.M.T))+iCovPred  # cov of state estimate
+                correctedmux[:,i]=(inv(R).dot(iCovPred).dot(predictedmux[:,i]) + 
                      inv(R).dot(self.M.T).dot(self.Q).dot(self.z[:,i]))  # corrected state estimate
-                correctedmux[:,i]=mux[:]
                 
                 # Calculate prior on next state.
-                predictedmux[:,i+delay+1]=self.A.dot(mux)+self.b[:,i]
-                iCovx=(inv(self.A.T).dot(inv( inv(self.A.T.dot(self.L).dot(self.A))+inv(R) )).dot(inv(self.A)))
-                CovPred[i+1]=inv(iCovx)
+                predictedmux[:,i+delay+1]=self.A.dot(correctedmux[:,i])+self.b[:,i]
+                iCovPred=(inv(self.A.T).dot(inv( inv(self.A.T.dot(self.L).dot(self.A))+inv(R) )).dot(inv(self.A)))
+                CovPred[i+1]=inv(iCovPred)
         return predictedmux,CovPred,correctedmux,CovCorrected
 
-    def unscented_filter(self,delay=0):
+    def extended_filter(self,delay=0):
         """
         Kalman filter using local Jacobian approximation to model nonlinear dynamics.
         2016-12-26
@@ -129,22 +131,23 @@ class Kalman(object):
         Values:
         -------
         predictedmux
-        correctedmux 2016-12-23
+        correctedmux
         """
         if delay==0:
             T=self.z.shape[1]
             correctedmux=np.zeros((self.ndim,T))  # result of prediction once accounting for obs
             predictedmux=np.zeros((self.ndim,T+1))
-            SigmaX=np.zeros((T+1,self.ndim,self.ndim))
+            CovPred=np.zeros((T+1,self.ndim,self.ndim))
+            CovCorrect=np.zeros((T,self.ndim,self.ndim))
             
             # Calculate KF corrected estimate of state with data.
-            SigmaX[0]=self.covx0
+            CovPred[0]=self.covx0
             predictedmux[:,0]=self.x0
             
             for i in xrange(T):
-                iSigmax=inv(SigmaX[i])
-                R=self.M.T.dot(self.Q.dot(self.M.T))+iSigmax  # inverse cov of state estimate
-                mux=(inv(R).dot(iSigmax).dot(predictedmux[:,i]) + 
+                iCovPred=inv(CovPred[i])
+                R=self.M.T.dot(self.Q.dot(self.M.T))+iCovPred  # inverse cov of state estimate
+                mux=(inv(R).dot(iCovPred).dot(predictedmux[:,i]) + 
                      inv(R).dot(self.M.T).dot(self.Q).dot(self.z[:,i]))  # corrected state estimate
                 correctedmux[:,i]=mux[:]
                 
@@ -156,37 +159,40 @@ class Kalman(object):
                 if type(spline)==float:
                     L=self.L
                 else:
-                    L=inv( inv(self.L)+(inv(R)+SigmaX[i-3])/4 )
-                iSigmax=(inv(A.T).dot(inv( inv(A.T.dot(L).dot(A))+inv(R) )).dot(inv(A)))
+                    L=inv( inv(self.L)+(inv(R)+CovPred[i-3])/4 )
+                iCovPred=(inv(A.T).dot(inv( inv(A.T.dot(L).dot(A))+inv(R) )).dot(inv(A)))
                 try:
-                    SigmaX[i+1]=inv(iSigmax)
+                    CovPred[i+1]=inv(iCovPred)
                 except np.linalg.LinAlgError:
                     print A
-                    print iSigmax
+                    print iCovPred
         else:
             T=self.z.shape[1]
             correctedmux=np.zeros((len(self.x0),T+delay))  # result of prediction once accounting for obs
             correctedmux[:,:delay]=np.tile(self.x0[:,None],(1,delay))
             predictedmux=np.zeros((len(self.x0),T+delay+1))  # result of prediction once accounting for obs
             predictedmux[:,:delay]=np.tile(self.x0[:,None],(1,delay))
-            SigmaX=np.zeros((T+1,self.ndim,self.ndim))
+            CovPred=np.zeros((T+1,self.ndim,self.ndim))
+            CovCorrect=np.zeros((T+delay,self.ndim,self.ndim))
             
             # Calculate KF corrected estimate of state with data.
-            SigmaX[0]=self.covx0
-            iSigmax=inv(SigmaX[0])
+            CovPred[0]=self.covx0
+            iCovPred=inv(CovPred[0])
             predictedmux[:,0]=self.x0
             
             for i in xrange(T):
-                R=self.M.T.dot(self.Q.dot(self.M.T))+iSigmax  # cov of state estimate
-                mux=(inv(R).dot(iSigmax).dot(predictedmux[:,i]) + 
+                R=self.M.T.dot(self.Q.dot(self.M.T))+iCovPred  # cov of state estimate
+                mux=(inv(R).dot(iCovPred).dot(predictedmux[:,i]) + 
                      inv(R).dot(self.M.T).dot(self.Q).dot(self.z[:,i]))  # corrected state estimate
                 correctedmux[:,i]=mux[:]
                 
                 # Calculate prior on next state.
                 predictedmux[:,i+delay+1]=self.A.dot(mux)+self.b[:,i]
-                iSigmax=(inv(self.A.T).dot(inv( inv(self.A.T.dot(self.L).dot(self.A))+inv(R) )).dot(inv(self.A)))
-                SigmaX[i+1]=inv(iSigmax)
-        return predictedmux,correctedmux,SigmaX
+                iCovPred=(inv(self.A.T).dot(inv( inv(self.A.T.dot(self.L).dot(self.A))+inv(R) )).dot(inv(self.A)))
+                
+                CovPred[i+1]=inv(iCovPred)
+                CovCorrect[i]=inv(R)
+        return predictedmux,CovPred,correctedmux,CovCorrect
 
     def der(self,x,n=1):
         if x.shape[1]<3:
