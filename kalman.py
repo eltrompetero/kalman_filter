@@ -1,4 +1,6 @@
-# An implementation of the Kalman filter.
+# An implementation of the Kalman filter. 
+# Written by Edward Lee edl56@cornell.edu
+
 import numpy as np
 from numpy.linalg import inv
 
